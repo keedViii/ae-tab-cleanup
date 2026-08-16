@@ -1,0 +1,10 @@
+.DS_Store
+*.aep
+*.aet
+Adobe After Effects Auto-Save/
+*.mov
+*.mp4
+palette.png
+croptest.png
+frame.png
+lastframe.png
