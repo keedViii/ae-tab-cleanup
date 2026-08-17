@@ -20,9 +20,14 @@ Tab Cleanup closes in bulk and keeps the receipt.
 
 ## Use
 
-Press **Refresh** to list the project's comps, then highlight the rows you care
-about. Selection is the state — there is no separate tick step, and selections
-survive filter changes, so you can build a set across several searches.
+Press **Rescan** once to read which comps are open. From then on the list shows
+only those, and it stays current as you close and reopen — **Refresh** just
+re-renders it. **All comps** switches to the full project list when you need a
+comp that was never open.
+
+Highlight the rows you care about. Selection is the state — there is no separate
+tick step, and selections survive filter changes, so you can build a set across
+several searches. Double-click a row to open that comp.
 
 | Action | What it does |
 |---|---|
@@ -57,14 +62,17 @@ knowing before you file a bug.
 
 **After Effects will not tell you which comps are open.** There is no `isOpen`
 property and no list of viewer tabs — `app.project.activeItem` gives you the
-active one and nothing else. So the Project comps tab lists every comp in the
-project rather than only the open ones. Ticking a comp that is already closed is
-harmless: it opens and closes in the same breath.
+active one and nothing else. **Rescan** works around this by closing every tab
+and immediately reopening it, which is the only way to observe the set. After
+that the panel tracks its own opens and closes, so a rescan is only needed when
+tabs change by hand outside the panel.
 
 **There is no API for closing a tab.** Closing means activating a comp and firing
 the File > Close menu command through `app.executeCommand`. Because that walks
 the open tabs one at a time, the close operation is itself the only reliable
-enumeration of what was open — which is exactly what fills the Closed tabs list.
+enumeration of what was open — which is exactly what fills the Closed tabs list,
+and what **Scan open tabs** exploits by closing everything and restoring it
+immediately. The cost of that scan is a reordered tab bar.
 
 The practical consequence: closing is not undoable. `Cmd`/`Ctrl` + `Z` will not
 bring tabs back, because closing a tab isn't an undo-stack operation. The Closed

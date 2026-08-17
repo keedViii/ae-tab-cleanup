@@ -3,6 +3,53 @@
 All notable changes to this project are documented here. This project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.2] - 2026-08-17
+
+### Changed
+
+- Rescan no longer asks for confirmation. The scan closes and immediately
+  reopens every tab, so from the user's side it reads rather than changes — the
+  dialog was interrupting a routine action to warn about a reordered tab bar.
+- Refresh runs the scan itself when no open set has been read yet, so the panel
+  works on first use without knowing which button to press.
+
+## [1.5.1] - 2026-08-17
+
+### Added
+
+- Double-clicking a row in the Project comps list opens that comp, matching the
+  gesture already used in the Closed tabs list. Comps opened this way are removed
+  from the closed list.
+
+## [1.5.0] - 2026-08-17
+
+### Changed
+
+- The list now shows open tabs by default rather than every comp in the project.
+- The open set is maintained as the panel works — each close removes from it and
+  each reopen adds back — so **Refresh** re-renders it without rescanning.
+  **Rescan** re-reads it from After Effects, which is only needed after opening
+  or closing tabs by hand outside the panel.
+- **All comps** switches to the full project list when you need to reach a comp
+  that was never open.
+
+## [1.4.0] - 2026-08-17
+
+### Added
+
+- **Scan open tabs.** Lists only the comps currently open, instead of every comp
+  in the project. After Effects exposes no way to read the open set, so the scan
+  closes every tab and immediately reopens it — closing walks the tabs one at a
+  time, which makes it the only way to observe them. Comps are stashed as they
+  close and unstashed once restored, so an interrupted scan leaves them
+  recoverable from the Closed tabs list rather than lost.
+- **Refresh** returns to showing all comps in the project.
+
+### Known behaviour
+
+- A scan reorders the tab bar. The comp that was active is restored as active,
+  but the surrounding tab order is not preserved.
+
 ## [1.3.0] - 2026-08-16
 
 ### Changed

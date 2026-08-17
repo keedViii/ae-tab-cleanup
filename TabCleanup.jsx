@@ -28,13 +28,13 @@
  * Tested on CC 2019 through 2025. ExtendScript (ES3) — no ES5 array methods.
  *
  * @author Wun VFX
- * @version 1.3.0
+ * @version 1.5.2
  * @license MIT
  */
 
 (function tabCleanup(thisObj) {
     var SCRIPT_NAME = "Tab Cleanup";
-    var SCRIPT_VERSION = "1.3.0";
+    var SCRIPT_VERSION = "1.5.2";
 
     var CHECKED = "\u25A0";
     var UNCHECKED = "\u25A1";
@@ -213,6 +213,8 @@
         var ticked = [];       // selected comps, survives filter changes
         var shown = [];        // comps currently visible in the comp list
         var stash = [];        // {id, name} of comps this panel closed, newest first
+        var openComps = [];    // result of the last open-tab scan
+        var mode = "open";     // "open" (tabs on screen) or "all" (every comp in the project)
         var suspend = false;   // blocks the selection handler during programmatic repaints
 
         var tabs = win.add("tabbedpanel");
@@ -240,6 +242,10 @@
         txtFilter.alignment = ["fill", "center"];
         var btnRefresh = filterRow.add("button", undefined, "Refresh");
         btnRefresh.preferredSize.width = 80;
+        var btnScanOpen = filterRow.add("button", undefined, "Rescan");
+        btnScanOpen.preferredSize.width = 80;
+        var btnShowAll = filterRow.add("button", undefined, "All comps");
+        btnShowAll.preferredSize.width = 90;
 
         var list = tabComps.add("listbox", undefined, [], {
             numberOfColumns: 4,
@@ -292,7 +298,7 @@
 
         /* --- shared footer --- */
 
-        var lblStatus = win.add("statictext", undefined, "Press Refresh to list the project's comps.");
+        var lblStatus = win.add("statictext", undefined, "Press Refresh to read the open tabs.");
         lblStatus.alignment = ["fill", "bottom"];
 
         var lblFoot = win.add("statictext", undefined,
@@ -349,11 +355,12 @@
 
         function paintComps() {
             var needle = txtFilter.text;
+            var source = (mode === "open") ? openComps : comps;
             shown = [];
             suspend = true;
             list.removeAll();
 
-            each(comps, function (comp) {
+            each(source, function (comp) {
                 if (!isAlive(comp)) { return; }
                 if (needle !== "" && !contains(comp.name, needle)) { return; }
                 shown.push(comp);
@@ -383,7 +390,10 @@
         }
 
         function summarise() {
-            lblStatus.text = comps.length + " comp(s) in project, " + shown.length +
+            var scope = (mode === "open")
+                ? openComps.length + " open tab(s)"
+                : comps.length + " comp(s) in project";
+            lblStatus.text = scope + ", " + shown.length +
                 " shown, " + ticked.length + " selected \u2014 " + stash.length + " in closed list.";
         }
 
@@ -414,11 +424,73 @@
             } catch (e) {}
         }
 
+        /**
+         * The open set is maintained as the panel works rather than rescanned.
+         * Every close removes from it and every reopen adds back, so it stays
+         * accurate for anything this panel did. Tabs opened or closed by hand
+         * elsewhere in After Effects are invisible to it — that is what Rescan
+         * is for.
+         */
+        function openAdd(comp) {
+            if (indexOf(openComps, comp) === -1) { openComps.push(comp); }
+        }
+
+        function openRemove(comp) {
+            var at = indexOf(openComps, comp);
+            if (at !== -1) { openComps.splice(at, 1); }
+        }
+
+        function stashRemoveComp(comp) {
+            try {
+                var id = comp.id;
+                for (var i = stash.length - 1; i >= 0; i--) {
+                    if (stash[i].id === id) { stash.splice(i, 1); }
+                }
+            } catch (e) {}
+        }
+
+        /**
+         * Determines exactly which comps are open by closing every tab and
+         * immediately reopening them. After Effects offers no way to read the set
+         * of open comps, and closing walks them one at a time, so a full close and
+         * restore is the only way to observe it.
+         *
+         * Comps are stashed as they close and unstashed once reopened, so an
+         * interrupted scan leaves them recoverable from the Closed tabs list
+         * rather than simply gone.
+         */
+        function scanOpenTabs(cmdId) {
+            var found = [];
+            var guard = 0;
+
+            while (guard < 3000) {
+                var comp = activeComp();
+                if (comp === null) { break; }
+                try { comp.openInViewer(); } catch (e) {}
+                if (!closeActive(cmdId)) { break; }
+                found.push(comp);
+                stashAdd(comp);
+                guard++;
+            }
+            saveStash(stash);
+
+            // Reverse order so the comp that was active ends up active again.
+            for (var i = found.length - 1; i >= 0; i--) {
+                try { found[i].openInViewer(); } catch (e) {}
+                stashRemoveComp(found[i]);
+            }
+            saveStash(stash);
+
+            return found;
+        }
+
         function reopenComps(list_) {
             var opened = 0;
             each(list_, function (comp) {
                 if (!comp || !isAlive(comp)) { return; }
-                try { if (comp.openInViewer()) { opened++; } } catch (e) {}
+                try {
+                    if (comp.openInViewer()) { opened++; openAdd(comp); }
+                } catch (e) {}
             });
             return opened;
         }
@@ -434,12 +506,48 @@
 
         /* --- wiring: project comps --- */
 
-        btnRefresh.onClick = function () {
-            comps = allComps();
+        function pruneDead() {
             var live = [];
             each(ticked, function (c) { if (isAlive(c)) { live.push(c); } });
             ticked = live;
+
+            var stillOpen = [];
+            each(openComps, function (c) { if (isAlive(c)) { stillOpen.push(c); } });
+            openComps = stillOpen;
+        }
+
+        btnRefresh.onClick = function () {
+            comps = allComps();
+            pruneDead();
+            if (mode === "open" && openComps.length === 0) {
+                btnScanOpen.onClick();
+                return;
+            }
             paintComps();
+        };
+
+        btnShowAll.onClick = function () {
+            comps = allComps();
+            mode = "all";
+            pruneDead();
+            paintComps();
+        };
+
+        btnScanOpen.onClick = function () {
+            var cmdId = requireCloseCommand();
+            if (!cmdId) { return; }
+
+            lblStatus.text = "Reading open tabs\u2026";
+            repaint();
+
+            openComps = scanOpenTabs(cmdId);
+            comps = allComps();
+            mode = "open";
+            pruneDead();
+
+            paintComps();
+            paintStash();
+            lblStatus.text = "Found " + openComps.length + " open tab(s).";
         };
 
         txtFilter.onChanging = function () {
@@ -483,6 +591,22 @@
             syncFromSelection();
         };
 
+        /** Double-click opens the comp, whether or not it was in the closed list. */
+        list.onDoubleClick = function () {
+            var rows = selectionOf(list);
+            if (rows.length === 0) { return; }
+
+            var picked = [];
+            each(rows, function (row) { picked.push(row.comp); });
+
+            var opened = reopenComps(picked);
+            each(picked, function (c) { stashRemoveComp(c); });
+            saveStash(stash);
+            paintStash();
+            summarise();
+            lblStatus.text = "Opened " + opened + " comp(s).";
+        };
+
         btnCloseTicked.onClick = function () {
             var cmdId = requireCloseCommand();
             if (!cmdId) { return; }
@@ -498,6 +622,7 @@
             each(ticked, function (comp) {
                 if (closeOne(comp, cmdId)) {
                     stashAdd(comp);
+                    openRemove(comp);
                     closedCount++;
                 }
             });
@@ -524,6 +649,7 @@
             repaint();
 
             var closedCount = closeAll(cmdId, function (comp) {
+                openRemove(comp);
                 if (indexOf(keep, comp) === -1) { stashAdd(comp); }
             });
             var reopened = reopenComps(keep);
@@ -540,7 +666,10 @@
             lblStatus.text = "Closing\u2026";
             repaint();
 
-            var closedCount = closeAll(cmdId, stashAdd);
+            var closedCount = closeAll(cmdId, function (comp) {
+                stashAdd(comp);
+                openRemove(comp);
+            });
             afterClose(closedCount, 0);
         };
 
@@ -558,6 +687,7 @@
             repaint();
 
             var closedCount = closeAll(cmdId, function (comp) {
+                openRemove(comp);
                 if (comp !== keep) { stashAdd(comp); }
             });
             var reopened = reopenComps([keep]);
@@ -576,6 +706,7 @@
                 try {
                     if (comp.openInViewer()) {
                         opened++;
+                        openAdd(comp);
                         if (forget) {
                             var at = indexOf(stash, entry);
                             if (at !== -1) { stash.splice(at, 1); }
@@ -640,11 +771,12 @@
             reopenEntries(entries, true);
         };
 
-        each([btnRefresh, btnSelectShown, btnTickActive, btnClear,
+        each([btnRefresh, btnScanOpen, btnShowAll, btnSelectShown, btnTickActive, btnClear,
               btnCloseTicked, btnCloseButTicked, btnCloseAll, btnCloseOthers,
               btnReopen, btnReopenAll, btnForget, btnForgetAll],
             function (btn) { btn.onClick = guard(btn.onClick); });
         list.onChange = guard(list.onChange);
+        list.onDoubleClick = guard(list.onDoubleClick);
         stashList.onDoubleClick = guard(stashList.onDoubleClick);
 
         /* --- boot --- */
